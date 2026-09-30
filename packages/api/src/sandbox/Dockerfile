@@ -6,8 +6,10 @@ RUN apt-get update \
 	&& apt-get install -y --no-install-recommends python3 python3-pip python3-venv git curl jq ripgrep ca-certificates \
 	&& rm -rf /var/lib/apt/lists/*
 
-# @openai/codex@0.157.1 publishes linux-arm64, so the CLI is installed on the Ampere VM.
-RUN npm install -g pnpm @openai/codex@0.157.1 \
+# @openai/codex@0.157.1 publishes linux-arm64, so the CLI stays pinned on the Ampere VM.
+# @openai/codex-sdk@0.159.2 is the latest 0.x; it nests its own CLI and does not replace this one.
+# @excalidraw/excalidraw@0.18.1 is the current release.
+RUN npm install -g pnpm @openai/codex@0.157.1 @openai/codex-sdk@0.159.2 @excalidraw/excalidraw@0.18.1 \
 	&& npm cache clean --force
 
 COPY codex.toml /opt/codex/config.toml
