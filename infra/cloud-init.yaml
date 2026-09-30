@@ -1,29 +1,21 @@
 #cloud-config
+# One boot volume. /data/tomo is a directory on that disk, not a second volume.
+# Docker's group is GID 113 so infra/compose.yml group_add can reach the socket.
 package_update: true
-packages:
-  - docker.io
-  - docker-compose-v2
-
-fs_setup:
-  - device: /dev/disk/by-id/google-data
-    filesystem: ext4
-    partition: none
-    overwrite: false
-
-mounts:
-  - [/dev/disk/by-id/google-data, /data, ext4, "defaults,nofail,discard", "0", "2"]
 
 write_files:
   - path: /etc/docker/daemon.json
     content: |
       {
-        "data-root": "/data/docker",
         "log-driver": "json-file",
         "log-opts": { "max-size": "50m", "max-file": "3" }
       }
 
 runcmd:
+  - groupadd -f -g 113 docker
+  - apt-get update
+  - apt-get install -y docker.io docker-compose-v2
   - systemctl enable --now docker
+  - usermod -aG docker ubuntu
   - mkdir -p /opt/tomo
   - install -d -o 1000 -g 1000 /data/tomo
-  - gcloud auth configure-docker ${region}-docker.pkg.dev --quiet

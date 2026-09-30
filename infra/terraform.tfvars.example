@@ -1,0 +1,30 @@
+# Copy to terraform.tfvars and replace every placeholder.
+# terraform.tfvars is gitignored. Do not put a private key or a real OCID in git.
+# Do not apply until these values belong to your Oracle tenancy.
+#
+# Always Free limits this file is written against. Do not raise them.
+# Oracle's account-wide Ampere allowance is 4 OCPUs and 24 GB RAM, and 200 GB
+# of block storage. This stack requests half of the compute allowance and
+# refuses anything larger (see the locals and validation in main.tf):
+#
+#   shape            VM.Standard.A1.Flex
+#   ocpus            2          (not a variable; do not edit main.tf upward)
+#   memory_in_gbs    12         (not a variable; do not edit main.tf upward)
+#   boot volume      100 GB     (allowed range 50–100; no second disk)
+#
+# A shape other than VM.Standard.A1.Flex, more than 2 OCPUs, or more than
+# 12 GB will fail the instance precondition. boot_volume_gb outside 50–100 fails
+# validation. There is no data disk.
+
+region            = "us-phoenix-1"
+compartment_ocid  = "ocid1.compartment.oc1..REPLACE_ME"
+tenancy_ocid      = "ocid1.tenancy.oc1..REPLACE_ME"
+user_ocid         = "ocid1.user.oc1..REPLACE_ME"
+fingerprint       = "aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99"
+private_key_path  = "REPLACE_ME/oci_api_key.pem"
+ssh_public_key    = "ssh-ed25519 REPLACE_ME user@example"
+domain            = "example.com"
+boot_volume_gb    = 100
+
+# Optional. Leave unset to use the first availability domain.
+# availability_domain = "REPLACE_ME"

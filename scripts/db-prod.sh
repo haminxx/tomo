@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "$0")/oci.sh"
 cd "$(dirname "$0")/.."
 
 COMPOSE="cd /opt/tomo/src/infra && sudo docker compose --profile tools run --rm"
@@ -7,14 +8,10 @@ COMPOSE="cd /opt/tomo/src/infra && sudo docker compose --profile tools run --rm"
 case "${1:-}" in
 	studio)
 		echo "→ open https://local.drizzle.studio (ctrl+c to stop)"
-		gcloud compute ssh tomo --tunnel-through-iap --quiet \
-			--command "$COMPOSE --service-ports tools" \
-			-- -t -L 4983:127.0.0.1:4983
+		ssh_vm -t -L 4983:127.0.0.1:4983 "$COMPOSE --service-ports tools"
 		;;
 	migrate)
-		gcloud compute ssh tomo --tunnel-through-iap --quiet \
-			--command "$COMPOSE tools pnpm exec drizzle-kit migrate" \
-			-- -t
+		ssh_vm -t "$COMPOSE tools pnpm exec drizzle-kit migrate"
 		;;
 	*)
 		echo "usage: $0 studio|migrate"

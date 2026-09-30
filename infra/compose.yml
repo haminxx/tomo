@@ -4,6 +4,7 @@ services:
   caddy:
     image: caddy:2
     restart: unless-stopped
+    env_file: ../../.env
     ports:
       - "80:80"
       - "443:443"
@@ -21,6 +22,7 @@ services:
       ENVIRONMENT: production
       PORT: 8666
     env_file: ../../.env
+    # Matches the docker group created in cloud-init.yaml.
     group_add:
       - "113"
     volumes:

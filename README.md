@@ -34,7 +34,7 @@ work is multiplayer. computers are single-player. tomo gives every team one pers
 
 <img src="./docs/readme/stack.svg" width="100%" alt="browser to caddy to the node api, which uses sqlite and runs one docker container per workspace"/>
 
-each workspace is its own Docker container with Python, Node, git and Playwright. the API streams terminals to everyone connected and syncs desktop state over WebSockets. all of it runs on a single Google Cloud VM. there's a [more detailed diagram](./docs/architecture/architecture.png) too.
+each workspace is its own Docker container with Python, Node, and git. the API streams terminals to everyone connected and syncs desktop state over WebSockets. all of it runs on one Oracle Cloud Always Free Ampere VM. there's a [more detailed diagram](./docs/architecture/architecture.png) too.
 
 | | |
 | --- | --- |
@@ -54,7 +54,9 @@ pnpm sandbox:build
 pnpm dev
 ```
 
-needs Node 22, pnpm and a running Docker daemon. fill in `BETTER_AUTH_SECRET`, and `OPENAI_API_KEY` if you want the agent. the database migrates itself on boot.
+needs Node 22, pnpm and a running Docker daemon. fill in `BETTER_AUTH_SECRET` (`openssl rand -base64 32`). `DOMAIN` is the public hostname Caddy and the API use; it defaults to `tomo.computer` when unset. `OPENAI_API_KEY` is optional. Google OAuth is not used. boot seeds one guest on one workspace, and `/` opens that shared desktop.
+
+deploy with OpenTofu on Oracle Cloud. copy `infra/terraform.tfvars.example` to `infra/terraform.tfvars` and fill in your tenancy. the example is an Always Free Ampere VM: `VM.Standard.A1.Flex`, 2 OCPUs, 12 GB RAM, Ubuntu 24.04 aarch64, and one 50–100 GB boot volume. `pnpm infra:plan` previews it. do not apply until the account is yours. set `VM_HOST` to the instance public IPv4 before `pnpm ship`.
 
 <br/>
 <br/>

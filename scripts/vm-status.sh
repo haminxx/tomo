@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "$0")/oci.sh"
 
 REMOTE='
 section() { printf "\n\033[1m== %s ==\033[0m\n" "$1"; }
@@ -34,4 +35,4 @@ OOM=$(sudo journalctl -k --since "7 days ago" --no-pager -q | grep -i "out of me
 echo "${OOM:-none}"
 '
 
-gcloud compute ssh tomo --tunnel-through-iap --quiet --command "$REMOTE" </dev/null
+ssh_vm "$REMOTE" </dev/null

@@ -12,11 +12,15 @@ export namespace WorkspaceAPI {
 	type Ref = Pick<Workspace.Select, "id">;
 	type UserRef = Pick<User.Select, "id">;
 
-	export function create(db: Db.Type, args: { owner: UserRef; input: Workspace.Create }) {
+	export function create(
+		db: Db.Type,
+		args: { owner: UserRef; input: Workspace.Create; id?: string },
+	) {
 		return Db.transaction(db, (tx) => {
 			const workspace = tx
 				.insert(Workspace.Table)
 				.values({
+					...(args.id ? { id: args.id } : {}),
 					name: args.input.name,
 					ownerId: args.owner.id,
 					wallpaper: Workspace.DefaultWallpaper,

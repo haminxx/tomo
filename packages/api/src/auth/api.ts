@@ -17,6 +17,7 @@ export namespace AuthAPI {
 				? { google: { clientId: Env.GOOGLE_CLIENT_ID, clientSecret: Env.GOOGLE_CLIENT_SECRET } }
 				: {};
 
+		const origin = Api.URLs.Domains.Production;
 		return betterAuth({
 			database: drizzleAdapter(db, {
 				provider: Db.Provider,
@@ -28,11 +29,11 @@ export namespace AuthAPI {
 				},
 			}),
 			secret: Env.BETTER_AUTH_SECRET,
-			baseURL: production ? Api.URLs.Domains.Production : Api.URLs.Domains.Development,
+			baseURL: production ? origin : Api.URLs.Domains.Development,
 			basePath: "/api/auth",
 			trustedOrigins: production
-				? [Api.URLs.Domains.Production]
-				: [Api.URLs.Domains.Development, Api.URLs.Domains.Production],
+				? [origin, `https://*.${new URL(origin).host}`]
+				: [Api.URLs.Domains.Development, origin],
 			emailAndPassword: { enabled: true },
 			socialProviders: { ...google },
 			session: {

@@ -2,6 +2,7 @@ export * from "./api";
 export type { Auth } from "./auth";
 export * from "./auth/user";
 export * from "./core";
+export * from "./guest";
 export * from "./sandbox";
 export * from "./sync";
 export * from "./workspace";

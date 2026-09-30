@@ -2,167 +2,265 @@ terraform {
   required_version = ">= 1.8"
 
   required_providers {
-    google = {
-      source  = "hashicorp/google"
-      version = "~> 6.0"
+    oci = {
+      source  = "oracle/oci"
+      version = "~> 9.0"
     }
   }
-
-  backend "gcs" {
-    bucket = "tomo-computer-tfstate"
-    prefix = "tofu"
-  }
 }
 
-variable "project" {
-  default = "tomo-computer"
-}
+# Local state only. This stack does not use a Google bucket or any other
+# remote backend, so init does not touch a cloud account.
 
 variable "region" {
-  default = "us-west1"
+  description = "OCI region. Ampere Always Free capacity is regional; us-phoenix-1 and us-ashburn-1 are common choices."
+  type        = string
 }
 
-variable "zone" {
-  default = "us-west1-b"
+variable "compartment_ocid" {
+  description = "Compartment OCID for the network and instance. Not a secret key."
+  type        = string
 }
 
-variable "machine_type" {
-  default = "e2-standard-4"
+variable "tenancy_ocid" {
+  description = "Tenancy OCID. Not a secret key."
+  type        = string
 }
 
-variable "data_disk_gb" {
-  default = 100
+variable "user_ocid" {
+  description = "API user OCID. Not a secret key."
+  type        = string
 }
 
-provider "google" {
-  project = var.project
-  region  = var.region
-  zone    = var.zone
+variable "fingerprint" {
+  description = "API signing key fingerprint. The private key stays on the machine that runs tofu."
+  type        = string
 }
 
-resource "google_project_service" "apis" {
-  for_each = toset([
-    "compute.googleapis.com",
-    "iap.googleapis.com",
-    "artifactregistry.googleapis.com",
-  ])
-  service            = each.value
-  disable_on_destroy = false
+variable "private_key_path" {
+  description = "Path to the API private key on the machine that runs tofu. Never commit that key."
+  type        = string
 }
 
-resource "google_artifact_registry_repository" "tomo" {
-  repository_id = "tomo"
-  format        = "DOCKER"
-  location      = var.region
-  depends_on    = [google_project_service.apis]
+variable "ssh_public_key" {
+  description = "SSH public key installed for the ubuntu user. Never commit a private key."
+  type        = string
 }
 
-resource "google_service_account" "vm" {
-  account_id = "tomo-vm"
+variable "domain" {
+  description = "Public hostname for this computer. Caddy and the API read DOMAIN from the environment at runtime; this value is not written into Caddy."
+  type        = string
 }
 
-resource "google_project_iam_member" "vm" {
-  for_each = toset([
-    "roles/artifactregistry.reader",
-    "roles/logging.logWriter",
-    "roles/monitoring.metricWriter",
-  ])
-  project = var.project
-  role    = each.value
-  member  = "serviceAccount:${google_service_account.vm.email}"
+variable "availability_domain" {
+  description = "Optional availability domain name. Empty uses the first domain in the region. Ampere capacity is often only in one domain."
+  type        = string
+  default     = ""
 }
 
-resource "google_compute_address" "tomo" {
-  name       = "tomo"
-  depends_on = [google_project_service.apis]
+variable "name" {
+  description = "Display name for the instance and network."
+  type        = string
+  default     = "tomo"
 }
 
-resource "google_compute_disk" "data" {
-  name       = "tomo-data"
-  type       = "pd-balanced"
-  size       = var.data_disk_gb
-  depends_on = [google_project_service.apis]
+variable "boot_volume_gb" {
+  description = "Size of the only disk, the boot volume. Always Free block storage is 200 GB total. This stack allows 50–100 GB and no second disk."
+  type        = number
+  default     = 100
 
-  lifecycle {
-    prevent_destroy = true
+  validation {
+    condition     = var.boot_volume_gb >= 50 && var.boot_volume_gb <= 100
+    error_message = "Boot volume must be 50–100 GB. Always Free includes 200 GB of block storage, and this stack has no second disk."
   }
 }
 
-resource "google_compute_instance" "tomo" {
-  name         = "tomo"
-  machine_type = var.machine_type
-  tags         = ["tomo"]
+# Not variables. A tfvars file cannot raise these.
+locals {
+  shape         = "VM.Standard.A1.Flex"
+  ocpus         = 2
+  memory_in_gbs = 12
+  availability_domain = (
+    var.availability_domain != ""
+    ? var.availability_domain
+    : data.oci_identity_availability_domains.ads.availability_domains[0].name
+  )
+}
 
-  boot_disk {
-    initialize_params {
-      image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
-      size  = 30
-      type  = "pd-balanced"
+provider "oci" {
+  region           = var.region
+  tenancy_ocid     = var.tenancy_ocid
+  user_ocid        = var.user_ocid
+  fingerprint      = var.fingerprint
+  private_key_path = var.private_key_path
+}
+
+data "oci_identity_availability_domains" "ads" {
+  compartment_id = var.tenancy_ocid
+}
+
+data "oci_core_images" "ubuntu" {
+  compartment_id           = var.tenancy_ocid
+  operating_system         = "Canonical Ubuntu"
+  operating_system_version = "24.04"
+  shape                    = local.shape
+  sort_by                  = "TIMECREATED"
+  sort_order               = "DESC"
+
+  filter {
+    name   = "display_name"
+    values = ["^Canonical-Ubuntu-24.04-aarch64-.*$"]
+    regex  = true
+  }
+}
+
+resource "oci_core_vcn" "tomo" {
+  compartment_id = var.compartment_ocid
+  cidr_blocks    = ["10.0.0.0/16"]
+  display_name   = var.name
+  dns_label      = var.name
+}
+
+resource "oci_core_internet_gateway" "tomo" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.tomo.id
+  display_name   = var.name
+  enabled        = true
+}
+
+resource "oci_core_route_table" "public" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.tomo.id
+  display_name   = "${var.name}-public"
+
+  route_rules {
+    destination       = "0.0.0.0/0"
+    destination_type  = "CIDR_BLOCK"
+    network_entity_id = oci_core_internet_gateway.tomo.id
+  }
+}
+
+resource "oci_core_security_list" "public" {
+  compartment_id = var.compartment_ocid
+  vcn_id         = oci_core_vcn.tomo.id
+  display_name   = "${var.name}-public"
+
+  egress_security_rules {
+    protocol    = "all"
+    destination = "0.0.0.0/0"
+  }
+
+  ingress_security_rules {
+    description = "HTTP"
+    protocol    = "6"
+    source      = "0.0.0.0/0"
+
+    tcp_options {
+      min = 80
+      max = 80
     }
   }
 
-  attached_disk {
-    source      = google_compute_disk.data.id
-    device_name = "data"
-  }
+  ingress_security_rules {
+    description = "HTTPS"
+    protocol    = "6"
+    source      = "0.0.0.0/0"
 
-  network_interface {
-    network = "default"
-    access_config {
-      nat_ip = google_compute_address.tomo.address
+    tcp_options {
+      min = 443
+      max = 443
     }
   }
 
-  service_account {
-    email  = google_service_account.vm.email
-    scopes = ["cloud-platform"]
+  ingress_security_rules {
+    description = "HTTP/3, already published by Caddy"
+    protocol    = "17"
+    source      = "0.0.0.0/0"
+
+    udp_options {
+      min = 443
+      max = 443
+    }
+  }
+
+  ingress_security_rules {
+    description = "SSH for deploy"
+    protocol    = "6"
+    source      = "0.0.0.0/0"
+
+    tcp_options {
+      min = 22
+      max = 22
+    }
+  }
+}
+
+resource "oci_core_subnet" "public" {
+  compartment_id             = var.compartment_ocid
+  vcn_id                     = oci_core_vcn.tomo.id
+  cidr_block                 = "10.0.1.0/24"
+  display_name               = "${var.name}-public"
+  dns_label                  = "public"
+  route_table_id             = oci_core_route_table.public.id
+  security_list_ids          = [oci_core_security_list.public.id]
+  prohibit_public_ip_on_vnic = false
+}
+
+resource "oci_core_instance" "tomo" {
+  availability_domain = local.availability_domain
+  compartment_id      = var.compartment_ocid
+  display_name        = var.name
+  shape               = local.shape
+
+  shape_config {
+    ocpus         = local.ocpus
+    memory_in_gbs = local.memory_in_gbs
+  }
+
+  source_details {
+    source_type             = "image"
+    source_id               = data.oci_core_images.ubuntu.images[0].id
+    boot_volume_size_in_gbs = var.boot_volume_gb
+  }
+
+  create_vnic_details {
+    subnet_id        = oci_core_subnet.public.id
+    display_name     = var.name
+    assign_public_ip = true
+    hostname_label   = var.name
   }
 
   metadata = {
-    enable-oslogin = "TRUE"
-    user-data      = templatefile("${path.module}/cloud-init.yaml", { region = var.region })
+    ssh_authorized_keys = var.ssh_public_key
+    user_data           = base64encode(file("${path.module}/cloud-init.yaml"))
   }
 
-  depends_on = [google_project_service.apis]
-}
+  preserve_boot_volume = false
 
-resource "google_compute_firewall" "web" {
-  name    = "tomo-web"
-  network = "default"
-
-  allow {
-    protocol = "tcp"
-    ports    = ["80", "443"]
+  lifecycle {
+    precondition {
+      condition = (
+        local.shape == "VM.Standard.A1.Flex" &&
+        local.ocpus == 2 &&
+        local.memory_in_gbs == 12 &&
+        var.boot_volume_gb >= 50 &&
+        var.boot_volume_gb <= 100
+      )
+      error_message = "Always Free cap for this stack is VM.Standard.A1.Flex, 2 OCPUs, 12 GB RAM, and one 50–100 GB boot volume. Do not request a larger shape."
+    }
   }
-
-  allow {
-    protocol = "udp"
-    ports    = ["443"]
-  }
-
-  source_ranges = ["0.0.0.0/0"]
-  target_tags   = ["tomo"]
-  depends_on    = [google_project_service.apis]
-}
-
-resource "google_compute_firewall" "iap_ssh" {
-  name    = "tomo-iap-ssh"
-  network = "default"
-
-  allow {
-    protocol = "tcp"
-    ports    = ["22"]
-  }
-
-  source_ranges = ["35.235.240.0/20"]
-  target_tags   = ["tomo"]
-  depends_on    = [google_project_service.apis]
 }
 
 output "ip" {
-  value = google_compute_address.tomo.address
+  description = "Public IPv4. Set VM_HOST to this value before pnpm ssh or pnpm ship."
+  value       = oci_core_instance.tomo.public_ip
 }
 
-output "image" {
-  value = "${var.region}-docker.pkg.dev/${var.project}/${google_artifact_registry_repository.tomo.repository_id}/api"
+output "domain" {
+  description = "Hostname to put in DOMAIN. Caddy reads that env var, not this output."
+  value       = var.domain
+}
+
+output "shape" {
+  value = "${local.shape} ${local.ocpus} OCPU ${local.memory_in_gbs} GB"
 }

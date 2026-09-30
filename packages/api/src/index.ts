@@ -6,9 +6,11 @@ import app from "./api/app";
 import { DbAPI } from "./api/db/api";
 import { Env } from "./api/env";
 import { SocketAPI } from "./api/socket/api";
+import { GuestAPI } from "./guest/api";
 import { PreviewAPI } from "./workspace/preview/api";
 
 DbAPI.migrate(DbAPI.instance());
+GuestAPI.seed();
 
 const server = new Hono()
 	.route("/", app)

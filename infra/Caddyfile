@@ -1,8 +1,9 @@
-tomo.computer {
+# Hostname only. Defaults to tomo.computer when DOMAIN is unset.
+{$DOMAIN:tomo.computer} {
 	reverse_proxy api:8666
 }
 
-*.tomo.computer {
+*.{$DOMAIN:tomo.computer} {
 	tls internal
 	reverse_proxy api:8666
 }
